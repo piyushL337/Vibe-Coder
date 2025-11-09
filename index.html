@@ -381,6 +381,87 @@
             to { transform: rotate(360deg); }
         }
 
+        .live-log {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+
+        .live-log-entry {
+            padding: 6px 0;
+            border-bottom: 1px solid #333;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .log-timestamp {
+            color: #858585;
+            margin-right: 8px;
+        }
+
+        .log-info {
+            color: #4fc3f7;
+        }
+
+        .log-success {
+            color: #66bb6a;
+        }
+
+        .log-error {
+            color: #ef5350;
+        }
+
+        .log-warning {
+            color: #ffb74d;
+        }
+
+        .file-progress {
+            margin-top: 10px;
+        }
+
+        .file-progress-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            margin-bottom: 8px;
+        }
+
+        .file-status-icon {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .spinner-small {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #e0e0e0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
         .tabs {
             display: flex;
             gap: 10px;
@@ -508,16 +589,24 @@ Example: I'm using React native For Android App, IOS APP Development Without exp
                         </div>
                     </div>
 
-                    <div id="generationLog"></div>
+                    <div class="section">
+                        <div class="section-title">📊 Live Generation Log</div>
+                        <div id="liveLog" class="live-log"></div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-title">📁 File Generation Status</div>
+                        <div id="fileProgress" class="file-progress"></div>
+                    </div>
 
                     <div style="display: flex; gap: 10px; margin-top: 20px;">
-                        <button class="btn btn-primary" onclick="startGeneration()">
+                        <button class="btn btn-primary" onclick="startGeneration()" id="startBtn">
                             <span>▶️</span> Start Generation
                         </button>
-                        <button class="btn btn-secondary" onclick="pauseGeneration()">
+                        <button class="btn btn-secondary" onclick="pauseGeneration()" id="pauseBtn" disabled>
                             <span>⏸️</span> Pause
                         </button>
-                        <button class="btn btn-danger" onclick="stopGeneration()">
+                        <button class="btn btn-danger" onclick="stopGeneration()" id="stopBtn" disabled>
                             <span>⏹️</span> Stop
                         </button>
                     </div>
@@ -612,14 +701,37 @@ Example: I'm using React native For Android App, IOS APP Development Without exp
                 const data = JSON.parse(stored);
                 state.apiKeys = data.apiKeys || [];
                 state.selectedModels = data.selectedModels || [];
+                state.generatedFiles = data.generatedFiles || {};
+                state.projectStructure = data.projectStructure || null;
+                state.projectPrompt = data.projectPrompt || '';
+                
+                // Restore project prompt
+                if (state.projectPrompt) {
+                    document.getElementById('projectPrompt').value = state.projectPrompt;
+                }
+                
+                // Show structure if exists
+                if (state.projectStructure) {
+                    renderProjectStructure(state.projectStructure);
+                    document.getElementById('projectAnalysis').style.display = 'block';
+                    document.getElementById('totalBatches').textContent = state.projectStructure.batches.length;
+                }
             }
         }
 
         function saveToStorage() {
             localStorage.setItem('aiCodingPlatform', JSON.stringify({
                 apiKeys: state.apiKeys,
-                selectedModels: state.selectedModels
+                selectedModels: state.selectedModels,
+                generatedFiles: state.generatedFiles,
+                projectStructure: state.projectStructure,
+                projectPrompt: state.projectPrompt
             }));
+        }
+
+        function saveGeneratedFile(filepath, code) {
+            state.generatedFiles[filepath] = code;
+            saveToStorage();
         }
 
         // API Key Management
@@ -728,6 +840,9 @@ Example: I'm using React native For Android App, IOS APP Development Without exp
             }
 
             state.projectPrompt = prompt;
+            saveToStorage();
+
+            addLiveLog('info', 'Starting project analysis...');
 
             const analysisPrompt = `You are an expert software architect. Analyze the following project requirements and create a COMPLETE file structure.
 
@@ -755,7 +870,10 @@ Provide a JSON response with this structure:
 Make sure to include ALL files needed for a production-ready project. Group files into logical batches (max 10 files per batch).`;
 
             try {
+                addLiveLog('info', 'Sending request to AI...');
                 const result = await callAPI(analysisPrompt, 'project-analysis');
+                
+                addLiveLog('success', 'Received response from AI');
                 
                 // Parse the response
                 let structureData;
@@ -769,11 +887,16 @@ Make sure to include ALL files needed for a production-ready project. Group file
                 state.projectStructure = structureData;
                 state.totalBatches = structureData.batches.length;
                 
+                saveToStorage();
+                
                 renderProjectStructure(structureData);
                 document.getElementById('projectAnalysis').style.display = 'block';
                 
-                showAlert('success', `Project analyzed! ${state.totalBatches} batches identified with ${structureData.batches.reduce((sum, b) => sum + b.files.length, 0)} files.`);
+                const totalFiles = structureData.batches.reduce((sum, b) => sum + b.files.length, 0);
+                addLiveLog('success', `Project analyzed! ${state.totalBatches} batches with ${totalFiles} files identified`);
+                showAlert('success', `Project analyzed! ${state.totalBatches} batches identified with ${totalFiles} files.`);
             } catch (error) {
+                addLiveLog('error', 'Analysis failed: ' + error.message);
                 showAlert('error', 'Failed to analyze project: ' + error.message);
             }
         }
@@ -812,10 +935,16 @@ Make sure to include ALL files needed for a production-ready project. Group file
             state.isGenerating = true;
             state.isPaused = false;
             state.currentBatch = 0;
-            state.generatedFiles = {};
             state.contextHistory = [];
 
+            // Update UI
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('pauseBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = false;
+            
             updateBatchStatus('processing');
+            clearLiveLog();
+            addLiveLog('info', '🚀 Starting project generation...');
 
             for (let i = 0; i < state.projectStructure.batches.length; i++) {
                 if (!state.isGenerating) break;
@@ -836,13 +965,20 @@ Make sure to include ALL files needed for a production-ready project. Group file
 
             if (state.isGenerating) {
                 updateBatchStatus('completed');
+                addLiveLog('success', '✅ Project generation completed successfully!');
                 showAlert('success', 'Project generation completed!');
                 state.isGenerating = false;
             }
+
+            // Reset UI
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('pauseBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = true;
         }
 
         async function generateBatch(batch) {
-            logGeneration(`Starting Batch ${batch.batchNumber}: ${batch.description}`);
+            addLiveLog('info', `📦 Starting Batch ${batch.batchNumber}: ${batch.description}`);
+            updateFileProgress(batch.files, 'pending');
 
             const contextInfo = state.contextHistory.length > 0 
                 ? `\n\nPreviously generated files for context:\n${state.contextHistory.join('\n')}` 
@@ -877,15 +1013,24 @@ FILE: <filepath>
 Generate all ${batch.files.length} files now.`;
 
             try {
+                addLiveLog('info', `🤖 Sending request to AI (${batch.files.length} files)...`);
                 const result = await callAPI(batchPrompt, `batch-${batch.batchNumber}`);
+                
+                addLiveLog('success', '📥 Received response, parsing files...');
                 parseBatchResponse(result, batch);
                 
                 // Add to context
                 state.contextHistory.push(`Batch ${batch.batchNumber}: Generated ${batch.files.map(f => f.path).join(', ')}`);
                 
-                logGeneration(`✅ Completed Batch ${batch.batchNumber}`);
+                updateFileProgress(batch.files, 'completed');
+                addLiveLog('success', `✅ Completed Batch ${batch.batchNumber} (${batch.files.length} files)`);
+                
+                // Save after each batch
+                saveToStorage();
+                
             } catch (error) {
-                logGeneration(`❌ Error in Batch ${batch.batchNumber}: ${error.message}`, 'error');
+                updateFileProgress(batch.files, 'error');
+                addLiveLog('error', `❌ Error in Batch ${batch.batchNumber}: ${error.message}`);
             }
         }
 
@@ -899,21 +1044,35 @@ Generate all ${batch.files.length} files now.`;
                 const codeMatch = codeBlock.match(/```[\w]*\n([\s\S]*?)```/);
                 const code = codeMatch ? codeMatch[1].trim() : codeBlock.trim();
                 
-                state.generatedFiles[filePath] = code;
-                logGeneration(`  📄 Generated: ${filePath}`);
+                saveGeneratedFile(filePath, code);
+                addLiveLog('success', `  📄 Generated: ${filePath}`);
+                updateSingleFileProgress(filePath, 'completed');
             }
         }
 
         function pauseGeneration() {
             state.isPaused = !state.isPaused;
-            updateBatchStatus(state.isPaused ? 'waiting' : 'processing');
+            if (state.isPaused) {
+                updateBatchStatus('waiting');
+                addLiveLog('warning', '⏸️ Generation paused');
+                document.getElementById('pauseBtn').innerHTML = '<span>▶️</span> Resume';
+            } else {
+                updateBatchStatus('processing');
+                addLiveLog('info', '▶️ Generation resumed');
+                document.getElementById('pauseBtn').innerHTML = '<span>⏸️</span> Pause';
+            }
         }
 
         function stopGeneration() {
-            if (confirm('Stop generation? Progress will be lost.')) {
+            if (confirm('Stop generation? Progress will be saved but remaining files won\'t be generated.')) {
                 state.isGenerating = false;
                 state.isPaused = false;
                 updateBatchStatus('error');
+                addLiveLog('warning', '⏹️ Generation stopped by user');
+                
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('pauseBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = true;
             }
         }
 
@@ -923,16 +1082,80 @@ Generate all ${batch.files.length} files now.`;
             badge.textContent = status.charAt(0).toUpperCase() + status.slice(1);
         }
 
-        function logGeneration(message, type = 'info') {
-            const log = document.getElementById('generationLog');
+        // Live Log Functions
+        function addLiveLog(type, message) {
+            const log = document.getElementById('liveLog');
             const timestamp = new Date().toLocaleTimeString();
-            const color = type === 'error' ? '#dc3545' : type === 'success' ? '#28a745' : '#333';
-            
-            log.innerHTML += `<div style="padding: 8px; margin: 5px 0; background: #f8f9fa; border-radius: 6px; border-left: 3px solid ${color};">
-                <small style="color: #999;">${timestamp}</small> - ${message}
-            </div>`;
-            
+            const entry = document.createElement('div');
+            entry.className = `live-log-entry log-${type}`;
+            entry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> ${message}`;
+            log.appendChild(entry);
             log.scrollTop = log.scrollHeight;
+        }
+
+        function clearLiveLog() {
+            document.getElementById('liveLog').innerHTML = '';
+        }
+
+        // File Progress Functions
+        function updateFileProgress(files, status) {
+            const container = document.getElementById('fileProgress');
+            
+            files.forEach(file => {
+                const existingItem = document.getElementById(`file-${file.path.replace(/[^a-zA-Z0-9]/g, '-')}`);
+                
+                if (existingItem) {
+                    updateFileStatus(existingItem, status);
+                } else {
+                    const item = document.createElement('div');
+                    item.className = 'file-progress-item';
+                    item.id = `file-${file.path.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                    item.innerHTML = `
+                        <div class="file-status-icon" data-status="${status}">
+                            ${getStatusIcon(status)}
+                        </div>
+                        <div style="flex: 1;">
+                            <strong>${file.path}</strong><br>
+                            <small style="color: #666;">${file.description}</small>
+                        </div>
+                    `;
+                    container.appendChild(item);
+                }
+            });
+        }
+
+        function updateSingleFileProgress(filepath, status) {
+            const itemId = `file-${filepath.replace(/[^a-zA-Z0-9]/g, '-')}`;
+            const item = document.getElementById(itemId);
+            if (item) {
+                updateFileStatus(item, status);
+            }
+        }
+
+        function updateFileStatus(item, status) {
+            const icon = item.querySelector('.file-status-icon');
+            icon.setAttribute('data-status', status);
+            icon.innerHTML = getStatusIcon(status);
+        }
+
+        function getStatusIcon(status) {
+            switch (status) {
+                case 'pending':
+                    return '⏳';
+                case 'processing':
+                    return '<div class="spinner-small"></div>';
+                case 'completed':
+                    return '✅';
+                case 'error':
+                    return '❌';
+                default:
+                    return '📄';
+            }
+        }
+
+        function logGeneration(message, type = 'info') {
+            // Deprecated - using addLiveLog instead
+            addLiveLog(type, message);
         }
 
         // API Call Function
